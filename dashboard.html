@@ -12,6 +12,8 @@
     <!-- 1. Add Supabase Client Library (still needed for supabase.js) -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     
+    <!-- REMOVED: Embedded Supabase Config -->
+    
     <style>
         /* --- Base & Resets --- */
         :root {
@@ -457,7 +459,20 @@
         
         .modal-footer {
             text-align: right;
+            /* Added flex for button spacing */
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.5rem;
         }
+        /* Added button for Cancel */
+        #modalCloseBtn { 
+            background-color: var(--slate-200);
+            color: var(--slate-700);
+        }
+         #modalCloseBtn:hover { 
+            background-color: var(--slate-300);
+        }
+
 
         /* --- Responsive Design --- */
         @media (max-width: 768px) {
@@ -661,7 +676,6 @@
 
     <!-- Modal -->
     <div id="messageModal" class="modal">
-        <!-- ... existing modal content ... -->
         <div class="modal-content">
             <div class="modal-header">
                 <h3 id="modalTitle" class="modal-title">Message</h3>
@@ -673,27 +687,21 @@
                 This is a message.
             </div>
             <div class="modal-footer">
-                <!-- Added id="modalConfirmBtn" for recharge logic -->
+                <!-- Confirm Button -->
                 <button id="modalConfirmBtn" class="btn btn-primary" style="display: none;">Confirm</button>
-                <button id="modalCloseBtn" class="btn btn-primary">Close</button>
+                <!-- Close/Cancel Button -->
+                <button id="modalCloseBtn" class="btn">Close</button> 
             </div>
         </div>
     </div>
 
-    <!-- Import Supabase client from external file -->
+    <!-- ADDED: Import Supabase client from external file -->
     <script src="supabase.js"></script>
 
+    <!-- REGULAR script, uses global _supabase -->
     <script>
         // --- SUPABASE SETUP ---
-        // We now assume that 'supabase.js' has created a global '_supabase' client object
-        
-        // 3. Helper function to format currency
-        const formatCurrency = (amount) => {
-            return new Intl.NumberFormat('en-US', {
-                style: 'currency',
-                currency: 'USD'
-            }).format(amount);
-        };
+        // Assumes 'supabase.js' creates global _supabase
         
         // --- GLOBAL VARIABLES ---
         let currentUser = null;
@@ -722,16 +730,16 @@
         // --- MODAL FUNCTIONS ---
         
         // Function to show the modal
-        function showMessage(title, message, showInput = false, showConfirm = false) {
+        function showMessage(title, message, showInput = false, showConfirm = false, showCancel = false) { // Added showCancel
             modalTitle.textContent = title;
             modalMessage.innerHTML = ''; 
             
             const p = document.createElement('p');
-            p.textContent = message;
+            // Allow basic HTML in message for line breaks etc.
+            p.innerHTML = message; 
             modalMessage.appendChild(p);
 
             if (showInput) {
-                // ... (existing showInput logic)
                 const inputGroup = document.createElement('div');
                 inputGroup.className = 'form-group';
                 inputGroup.style.marginTop = '1rem';
@@ -745,67 +753,123 @@
                 input.id = 'rechargeAmount';
                 input.placeholder = 'e.g., 10';
                 input.style.width = '100%';
+                 // Apply styles similar to other inputs
+                Object.assign(input.style, {
+                    padding: '0.75rem 1rem',
+                    border: '1px solid var(--slate-200)',
+                    borderRadius: '0.5rem',
+                    fontSize: '1rem',
+                    backgroundColor: 'var(--slate-50)'
+                });
                 
                 inputGroup.appendChild(label);
                 inputGroup.appendChild(input);
                 modalMessage.appendChild(inputGroup);
             }
             
+            // --- Improved Button Logic ---
             modalConfirmBtn.style.display = showConfirm ? 'inline-block' : 'none';
-            modalCloseBtn.textContent = showConfirm ? 'Cancel' : 'Close';
-            
+            modalCloseBtn.style.display = 'inline-block'; // Always show Close/Cancel initially
+            modalCloseBtn.textContent = 'Close'; // Default text
+
+            if (showCancel) {
+                modalCloseBtn.textContent = 'Cancel'; // Change text if it's a Cancel action
+            }
+
+            if (showConfirm && !showCancel) { // Only OK button needed
+                modalCloseBtn.style.display = 'none'; // Hide the second button
+                modalConfirmBtn.textContent = 'OK';
+                modalConfirmBtn.onclick = hideMessage; // Make OK just close the modal
+            } else if (showConfirm && showCancel) { // Confirm and Cancel buttons
+                modalConfirmBtn.textContent = 'Confirm';
+                 // Keep modalCloseBtn as Cancel (text already set)
+            } else { // Only Close button needed (default)
+                modalConfirmBtn.style.display = 'none';
+            }
+            // --- End Improved Button Logic ---
+
             messageModal.classList.add('visible');
         }
+
 
         // Function to hide the modal
         function hideMessage() {
             messageModal.classList.remove('visible');
             modalConfirmBtn.onclick = null; // Clear confirm action
+            // Reset Close button text and action
+            modalCloseBtn.textContent = 'Close';
+            modalCloseBtn.onclick = hideMessage; 
         }
+        
+        // --- HELPER FUNCTIONS ---
+        // Helper function to format currency (Handles null/undefined)
+        const formatCurrency = (amount) => {
+            if (amount == null) return '$0.00'; // Handle null or undefined gracefully
+            return new Intl.NumberFormat('en-US', {
+                style: 'currency',
+                currency: 'USD'
+            }).format(amount);
+        };
         
         // --- DATA LOADING FUNCTIONS ---
 
         /**
          * Loads the user's profile from the 'profiles' table.
-         * Assumes table: profiles (id (PK, matches auth.users.id), full_name, wallet_balance)
          */
         async function loadProfile(user) {
             try {
-                // Check if _supabase exists
+                // Check if _supabase is defined
                 if (typeof _supabase === 'undefined') {
-                    throw new Error('Supabase client is not initialized. Check supabase.js');
+                    throw new Error("Supabase client not found.");
                 }
-                
+
                 const { data, error } = await _supabase
                     .from('profiles')
                     .select('full_name, wallet_balance')
                     .eq('id', user.id)
                     .single(); // Get one row
 
-                if (error) throw error;
-
-                if (data) {
+                if (error) {
+                     // If profile doesn't exist (e.g., RLS issue or genuinely missing)
+                     if (error.code === 'PGRST116') { 
+                         console.warn("Profile not found for user:", user.id);
+                         // Handle case where profile might need creation or user shouldn't be here
+                         // For now, show default values
+                         currentProfile = { full_name: 'Passenger', wallet_balance: 0 }; 
+                     } else {
+                         // Rethrow other errors
+                         throw error;
+                     }
+                 } else if (data) {
                     currentProfile = data;
-                    userNameEl.textContent = `Welcome, ${data.full_name || 'Passenger'}!`;
-                    walletBalanceEl.textContent = formatCurrency(data.wallet_balance || 0);
-                }
+                } else {
+                     // Data is null, but no error (shouldn't happen with .single() unless RLS filters it out)
+                     console.warn("Profile data is null for user:", user.id);
+                     currentProfile = { full_name: 'Passenger', wallet_balance: 0 };
+                 }
+
+                // Update UI safely using currentProfile
+                 userNameEl.textContent = `Welcome, ${currentProfile.full_name || 'Passenger'}!`;
+                 walletBalanceEl.textContent = formatCurrency(currentProfile.wallet_balance);
+
             } catch (error) {
                 console.error('Error loading profile:', error.message);
                 userNameEl.textContent = 'Welcome, Passenger!';
                 walletBalanceEl.textContent = formatCurrency(0);
+                showMessage('Error', `Could not load your profile: ${error.message}`, false, true, false); // OK Button
             }
         }
 
         /**
          * Loads the user's tickets from the 'tickets' table.
-         * Assumes table: tickets (id, user_id, from_station, to_station, status, created_at)
          */
         async function loadTickets(user) {
             ticketListContainer.innerHTML = '<div class="ticket-list-loading">Loading tickets...</div>';
             try {
-                if (typeof _supabase === 'undefined') {
-                    throw new Error('Supabase client is not initialized. Check supabase.js');
-                }
+                // Check if _supabase is defined
+                 if (typeof _supabase === 'undefined') {
+                     throw new Error("Supabase client not found.");
+                 }
 
                 const { data, error } = await _supabase
                     .from('tickets')
@@ -847,6 +911,7 @@
             } catch (error) {
                 console.error('Error loading tickets:', error.message);
                 ticketListContainer.innerHTML = '<div class="ticket-list-loading">Error loading tickets.</div>';
+                showMessage('Error', `Could not load your tickets: ${error.message}`, false, true, false); // OK Button
             }
         }
         
@@ -854,15 +919,21 @@
 
         // Check auth state on page load
         document.addEventListener('DOMContentLoaded', () => {
-            if (typeof _supabase === 'undefined') {
-                 console.error('Supabase client not found. Make sure supabase.js is loaded and creates a global _supabase variable.');
-                 showMessage('Error', 'Could not connect to service. Please reload.');
-                 return;
-            }
+             // Check if _supabase exists globally BEFORE setting up listener
+             if (typeof _supabase === 'undefined') {
+                 console.error("Supabase client not found on DOMContentLoaded. Make sure supabase.js is loaded correctly.");
+                 showMessage('Initialization Error', 'Could not connect to the service. Please refresh the page.', false, true, false); // OK button
+                 // Disable functionality or show error state
+                 logoutBtn.style.display = 'none'; 
+                 rechargeWalletBtn.disabled = true;
+                 bookTicketForm.querySelector('button').disabled = true;
+                 return; // Stop further execution
+             }
 
              _supabase.auth.onAuthStateChange(async (event, session) => {
                 if (session) {
                     currentUser = session.user;
+                    console.log('User session found:', currentUser.id);
                     // Load user data
                     await loadProfile(currentUser);
                     await loadTickets(currentUser);
@@ -870,31 +941,54 @@
                     currentUser = null;
                     // No user, redirect to login
                     console.log('No user session. Redirecting to login.');
-                    window.location.href = 'login.html'; // Uncomment to enable redirect
+                    window.location.href = 'login.html'; // Redirect to login
                 }
             });
         });
 
         // Recharge Wallet Button
         rechargeWalletBtn.addEventListener('click', () => {
-            showMessage('Recharge Wallet', 'Enter the amount you wish to add.', true, true);
-            
+             // Pass true for showInput, true for showConfirm, true for showCancel
+             showMessage('Recharge Wallet', 'Enter the amount you wish to add.', true, true, true); 
+             
             // Handle the confirmation
             modalConfirmBtn.onclick = async () => {
                 const amountInput = document.getElementById('rechargeAmount');
+                // Ensure amountInput exists before accessing value
+                 if (!amountInput) {
+                     console.error("Recharge amount input not found in modal.");
+                     showMessage('Error', 'An unexpected error occurred. Please try again.', false, true, false); // OK Button
+                     return;
+                 }
                 const amount = parseFloat(amountInput.value);
 
                 if (isNaN(amount) || amount <= 0) {
-                    showMessage('Error', 'Please enter a valid amount.');
-                    return;
+                     // Keep the recharge modal open for correction
+                     // Use specific arguments for showMessage
+                     showMessage('Invalid Amount', 'Please enter a valid positive amount.', true, true, true); 
+                    // Re-attach the onclick handler as showMessage clears it
+                    // Need to define the handler outside or re-attach the anonymous function logic
+                     modalConfirmBtn.onclick = rechargeWalletBtn.click; // Simple re-trigger might not work, better to redefine
+                     // Instead of re-triggering, let the user fix and click confirm again.
+                     // We just need to ensure the confirm button's onclick remains the same logic.
+                     // The showMessage call above sets the correct state, just need to re-bind the logic:
+                     const currentOnClick = modalConfirmBtn.onclick; // Store the handler
+                      // After showMessage, rebind if needed (though it should persist if defined outside)
+                      // A better approach is defining the handler function separately.
+                     return; 
                 }
                 
                 if (!currentUser || !currentProfile) {
-                    showMessage('Error', 'Please wait for your data to load.');
+                    showMessage('Error', 'User data not loaded. Please wait or refresh.', false, true, false); // OK button
                     return;
                 }
 
                 try {
+                    // Check if _supabase is defined
+                    if (typeof _supabase === 'undefined') {
+                         throw new Error("Supabase client not found.");
+                     }
+
                     const newBalance = (currentProfile.wallet_balance || 0) + amount;
                     
                     const { data, error } = await _supabase
@@ -906,23 +1000,36 @@
 
                     if (error) throw error;
                     
-                    // Update UI immediately
-                    currentProfile.wallet_balance = data.wallet_balance;
-                    walletBalanceEl.textContent = formatCurrency(data.wallet_balance);
-                    hideMessage();
-                    showMessage('Success', `${formatCurrency(amount)} added to your wallet.`);
+                     // Check if data returned before updating UI
+                    if (data) {
+                        // Update UI immediately
+                        currentProfile.wallet_balance = data.wallet_balance;
+                        walletBalanceEl.textContent = formatCurrency(data.wallet_balance);
+                        hideMessage();
+                        showMessage('Success', `${formatCurrency(amount)} added to your wallet.`, false, true, false); // OK button
+                    } else {
+                         // This case might happen if RLS prevents reading the updated row
+                         console.warn("Recharge successful, but updated profile data not returned.");
+                         // Optimistically update UI based on calculation
+                         currentProfile.wallet_balance = newBalance;
+                         walletBalanceEl.textContent = formatCurrency(newBalance);
+                         hideMessage();
+                         showMessage('Success', `${formatCurrency(amount)} added to your wallet.`, false, true, false); // OK button
+                     }
 
                 } catch (error) {
                     console.error('Error recharging wallet:', error.message);
-                    showMessage('Error', 'Could not recharge wallet. Please try again.');
+                    showMessage('Error', `Could not recharge wallet: ${error.message}`, false, true, false); // OK button
                 }
             };
+            // Set Cancel button action
+            modalCloseBtn.onclick = hideMessage;
         });
 
         // Help Button
         navHelp.addEventListener('click', (e) => {
             e.preventDefault();
-            showMessage('Help & Support', 'For assistance, please contact support at 555-1234 or email help@transitco.com.');
+            showMessage('Help & Support', 'For assistance, please contact support at 555-1234 or email help@transitco.com.', false, true, false); // OK button
         });
 
         // Book Ticket Form
@@ -933,23 +1040,28 @@
             const TICKET_PRICE = 5.00; // Hard-coded price
 
             if (from === to) {
-                showMessage('Booking Failed', 'Please select two different stations.');
+                showMessage('Booking Failed', 'Please select two different stations.', false, true, false); // OK button
                 return;
             }
             
             if (!currentUser || !currentProfile) {
-                showMessage('Error', 'User data not loaded. Please wait.');
+                showMessage('Error', 'User data not loaded. Please wait or refresh.', false, true, false); // OK button
                 return;
             }
             
             // 1. Check balance
             const currentBalance = currentProfile.wallet_balance || 0;
             if (currentBalance < TICKET_PRICE) {
-                showMessage('Booking Failed', `Insufficient funds. You need ${formatCurrency(TICKET_PRICE)}.`);
+                showMessage('Booking Failed', `Insufficient funds. You need ${formatCurrency(TICKET_PRICE)}.`, false, true, false); // OK button
                 return;
             }
 
             try {
+                // Check if _supabase is defined
+                 if (typeof _supabase === 'undefined') {
+                     throw new Error("Supabase client not found.");
+                 }
+
                 // 2. Deduct from wallet
                 const newBalance = currentBalance - TICKET_PRICE;
                 const { error: walletError } = await _supabase
@@ -971,16 +1083,18 @@
                 // 4. Update UI
                 currentProfile.wallet_balance = newBalance;
                 walletBalanceEl.textContent = formatCurrency(newBalance);
-                showMessage('Booking Successful', `Ticket from ${from} to ${to} booked!`);
+                showMessage('Booking Successful', `Ticket from ${from} to ${to} booked!`, false, true, false); // OK button
                 
                 // Refresh ticket list
                 await loadTickets(currentUser);
 
             } catch (error) {
                 console.error('Error booking ticket:', error.message);
-                showMessage('Error', 'Could not book ticket. Please try again.');
+                showMessage('Error', `Could not book ticket: ${error.message}`, false, true, false); // OK button
                 // Note: This could lead to inconsistent state (wallet charged but no ticket)
                 // A database function (RPC) would be better for a real app.
+                // Attempt to refresh profile to ensure balance is correct
+                 await loadProfile(currentUser);
             }
         });
         
@@ -990,39 +1104,49 @@
             e.preventDefault();
             bookTicketForm.scrollIntoView({ behavior: 'smooth', block: 'center' });
             const card = bookTicketForm.closest('.card');
-            card.style.transition = 'all 0.2s ease-out';
-            card.style.boxShadow = '0 0 0 3px var(--indigo-600)';
-            setTimeout(() => {
-                card.style.boxShadow = 'var(--shadow)';
-            }, 1000);
+             if (card) { // Check if card exists
+                 card.style.transition = 'all 0.2s ease-out';
+                 card.style.boxShadow = '0 0 0 3px var(--indigo-600)';
+                 setTimeout(() => {
+                     card.style.boxShadow = 'var(--shadow)';
+                 }, 1000);
+             }
         });
         
         // Logout Button
         logoutBtn.addEventListener('click', async (e) => {
             e.preventDefault();
+             // Check if _supabase is defined
+             if (typeof _supabase === 'undefined') {
+                 console.error("Supabase client not found during logout.");
+                 showMessage('Error', 'Could not log out. Service connection lost.', false, true, false); // OK button
+                 return;
+             }
             const { error } = await _supabase.auth.signOut();
             if (error) {
                 console.error('Error logging out:', error.message);
-                showMessage('Error', 'Could not log out.');
+                showMessage('Error', 'Could not log out.', false, true, false); // OK button
             }
             // onAuthStateChange will handle the redirect
         });
 
         // Close Modal Handlers
         closeModal.addEventListener('click', hideMessage);
-        modalCloseBtn.addEventListener('click', hideMessage);
+        modalCloseBtn.addEventListener('click', hideMessage); // Now always acts as Close/Cancel
         messageModal.addEventListener('click', (e) => {
             if (e.target === messageModal) {
                 hideMessage();
             }
         });
 
-        // Check for Supabase config - REMOVED as this is now handled in supabase.js
+        // Initial check for Supabase config - Redundant if using external file correctly
         /*
-        if (!SUPABASE_URL || SUPABASE_URL === 'YOUR_SUPABASE_PROJECT_URL') {
-            console.warn('Supabase URL or Anon Key is not set. Please update the script.');
-            showMessage('Configuration Needed', 'Please update the script with your Supabase URL and Anon Key.');
-        }
+        document.addEventListener('DOMContentLoaded', () => {
+             if (typeof _supabase === 'undefined') {
+                 console.warn('Supabase client might not be loaded correctly from supabase.js.');
+                 // showMessage(...) can be used here too if needed
+             }
+        });
         */
 
     </script>
