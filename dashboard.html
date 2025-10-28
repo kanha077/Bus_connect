@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     
-    <!-- 1. Add Supabase Client Library (still needed for supabase.js) -->
+    <!-- 1. Add Supabase Client Library FIRST -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     
     <!-- REMOVED: Embedded Supabase Config -->
@@ -951,80 +951,65 @@
              // Pass true for showInput, true for showConfirm, true for showCancel
              showMessage('Recharge Wallet', 'Enter the amount you wish to add.', true, true, true); 
              
-            // Handle the confirmation
-            modalConfirmBtn.onclick = async () => {
-                const amountInput = document.getElementById('rechargeAmount');
-                // Ensure amountInput exists before accessing value
+             // Define the handler function separately for clarity and re-binding
+             const handleRechargeConfirm = async () => {
+                 const amountInput = document.getElementById('rechargeAmount');
                  if (!amountInput) {
                      console.error("Recharge amount input not found in modal.");
                      showMessage('Error', 'An unexpected error occurred. Please try again.', false, true, false); // OK Button
                      return;
                  }
-                const amount = parseFloat(amountInput.value);
+                 const amount = parseFloat(amountInput.value);
 
-                if (isNaN(amount) || amount <= 0) {
-                     // Keep the recharge modal open for correction
-                     // Use specific arguments for showMessage
+                 if (isNaN(amount) || amount <= 0) {
                      showMessage('Invalid Amount', 'Please enter a valid positive amount.', true, true, true); 
-                    // Re-attach the onclick handler as showMessage clears it
-                    // Need to define the handler outside or re-attach the anonymous function logic
-                     modalConfirmBtn.onclick = rechargeWalletBtn.click; // Simple re-trigger might not work, better to redefine
-                     // Instead of re-triggering, let the user fix and click confirm again.
-                     // We just need to ensure the confirm button's onclick remains the same logic.
-                     // The showMessage call above sets the correct state, just need to re-bind the logic:
-                     const currentOnClick = modalConfirmBtn.onclick; // Store the handler
-                      // After showMessage, rebind if needed (though it should persist if defined outside)
-                      // A better approach is defining the handler function separately.
+                     // Ensure the confirm button still has the correct handler after showing the error
+                     modalConfirmBtn.onclick = handleRechargeConfirm; 
                      return; 
-                }
-                
-                if (!currentUser || !currentProfile) {
-                    showMessage('Error', 'User data not loaded. Please wait or refresh.', false, true, false); // OK button
-                    return;
-                }
+                 }
+                 
+                 if (!currentUser || !currentProfile) {
+                     showMessage('Error', 'User data not loaded. Please wait or refresh.', false, true, false); // OK button
+                     return;
+                 }
 
-                try {
-                    // Check if _supabase is defined
-                    if (typeof _supabase === 'undefined') {
-                         throw new Error("Supabase client not found.");
-                     }
+                 try {
+                     if (typeof _supabase === 'undefined') {
+                          throw new Error("Supabase client not found.");
+                      }
+                     const newBalance = (currentProfile.wallet_balance || 0) + amount;
+                     const { data, error } = await _supabase
+                         .from('profiles')
+                         .update({ wallet_balance: newBalance })
+                         .eq('id', currentUser.id)
+                         .select() 
+                         .single();
 
-                    const newBalance = (currentProfile.wallet_balance || 0) + amount;
-                    
-                    const { data, error } = await _supabase
-                        .from('profiles')
-                        .update({ wallet_balance: newBalance })
-                        .eq('id', currentUser.id)
-                        .select() // Ask Supabase to return the updated row
-                        .single();
-
-                    if (error) throw error;
-                    
-                     // Check if data returned before updating UI
-                    if (data) {
-                        // Update UI immediately
-                        currentProfile.wallet_balance = data.wallet_balance;
-                        walletBalanceEl.textContent = formatCurrency(data.wallet_balance);
-                        hideMessage();
-                        showMessage('Success', `${formatCurrency(amount)} added to your wallet.`, false, true, false); // OK button
-                    } else {
-                         // This case might happen if RLS prevents reading the updated row
-                         console.warn("Recharge successful, but updated profile data not returned.");
-                         // Optimistically update UI based on calculation
-                         currentProfile.wallet_balance = newBalance;
-                         walletBalanceEl.textContent = formatCurrency(newBalance);
+                     if (error) throw error;
+                     
+                     if (data) {
+                         currentProfile.wallet_balance = data.wallet_balance;
+                         walletBalanceEl.textContent = formatCurrency(data.wallet_balance);
                          hideMessage();
                          showMessage('Success', `${formatCurrency(amount)} added to your wallet.`, false, true, false); // OK button
-                     }
+                     } else {
+                          console.warn("Recharge successful, but updated profile data not returned.");
+                          currentProfile.wallet_balance = newBalance;
+                          walletBalanceEl.textContent = formatCurrency(newBalance);
+                          hideMessage();
+                          showMessage('Success', `${formatCurrency(amount)} added to your wallet.`, false, true, false); // OK button
+                      }
+                 } catch (error) {
+                     console.error('Error recharging wallet:', error.message);
+                     showMessage('Error', `Could not recharge wallet: ${error.message}`, false, true, false); // OK button
+                 }
+             };
 
-                } catch (error) {
-                    console.error('Error recharging wallet:', error.message);
-                    showMessage('Error', `Could not recharge wallet: ${error.message}`, false, true, false); // OK button
-                }
-            };
-            // Set Cancel button action
-            modalCloseBtn.onclick = hideMessage;
+             // Set the handlers
+             modalConfirmBtn.onclick = handleRechargeConfirm;
+             modalCloseBtn.onclick = hideMessage;
         });
+
 
         // Help Button
         navHelp.addEventListener('click', (e) => {
