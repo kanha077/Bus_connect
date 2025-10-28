@@ -8,6 +8,10 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     body { font-family: "Inter", sans-serif; background-color: #f3f4f6; }
+    /* Ensure modal is on top */
+    #messageModal, #createUserModal {
+        z-index: 100;
+    }
   </style>
 </head>
 <body class="min-h-screen flex flex-col">
@@ -15,7 +19,7 @@
   <!-- Header -->
   <header class="bg-blue-600 text-white py-4 px-6 flex justify-between items-center shadow-md">
     <h1 class="text-xl font-bold">Admin Dashboard</h1>
-    <button id="logoutBtn" class="bg-red-500 hover:bg-red-600 px-4 py-2 rounded">Logout</button>
+    <button id="logoutBtn" class="bg-red-500 hover:bg-red-600 px-4 py-2 rounded-lg transition-colors">Logout</button>
   </header>
 
   <!-- Main content -->
@@ -38,9 +42,9 @@
     </div>
 
     <!-- Search + Create -->
-    <div class="flex justify-between mb-4">
-      <input id="searchInput" type="text" placeholder="Search user by email..." class="w-2/3 p-2 border rounded-xl outline-none focus:ring-2 focus:ring-blue-400">
-      <button id="createUserBtn" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-xl">+ Create User</button>
+    <div class="flex flex-col sm:flex-row justify-between mb-4 gap-3">
+      <input id="searchInput" type="text" placeholder="Search user by email..." class="w-full sm:w-2/3 p-2 border rounded-xl outline-none focus:ring-2 focus:ring-blue-400">
+      <button id="createUserBtn" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-xl transition-colors">+ Create User</button>
     </div>
 
     <!-- Users Table -->
@@ -53,21 +57,34 @@
             <th class="py-3 px-4 text-left">Actions</th>
           </tr>
         </thead>
-        <tbody id="userTable" class="text-gray-700"></tbody>
+        <tbody id="userTable" class="text-gray-700 divide-y divide-gray-200">
+            <!-- Loading placeholder -->
+            <tr><td colspan="3" class="p-4 text-center text-gray-500">Loading users...</td></tr>
+        </tbody>
       </table>
     </div>
 
   </main>
 
   <!-- Create User Modal -->
-  <div id="createUserModal" class="fixed inset-0 hidden bg-black bg-opacity-50 flex justify-center items-center z-50">
-    <div class="bg-white rounded-xl p-6 w-96">
+  <div id="createUserModal" class="fixed inset-0 hidden bg-black bg-opacity-50 flex justify-center items-center p-4">
+    <div class="bg-white rounded-xl p-6 w-full max-w-md shadow-lg">
       <h2 class="text-lg font-semibold mb-4">Create New User</h2>
-      <input id="newUserEmail" type="email" placeholder="Email" class="w-full p-2 border rounded mb-3" />
-      <input id="newUserPassword" type="password" placeholder="Password" class="w-full p-2 border rounded mb-3" />
+      <input id="newUserEmail" type="email" placeholder="Email" class="w-full p-2 border rounded-lg mb-3" />
+      <input id="newUserPassword" type="password" placeholder="Password" class="w-full p-2 border rounded-lg mb-3" />
       <div class="flex justify-end gap-3">
-        <button id="cancelCreate" class="px-4 py-2 bg-gray-300 rounded">Cancel</button>
-        <button id="confirmCreate" class="px-4 py-2 bg-blue-600 text-white rounded">Create</button>
+        <button id="cancelCreate" class="px-4 py-2 bg-gray-300 hover:bg-gray-400 rounded-lg transition-colors">Cancel</button>
+        <button id="confirmCreate" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generic Message/Confirm Modal -->
+  <div id="messageModal" class="fixed inset-0 hidden bg-black bg-opacity-50 flex justify-center items-center p-4">
+    <div class="bg-white rounded-xl p-6 w-full max-w-md shadow-lg">
+      <p id="messageText" class="text-gray-700 mb-4">This is a message.</p>
+      <div id="messageButtons" class="flex justify-end gap-3">
+        <!-- Buttons are dynamically injected -->
       </div>
     </div>
   </div>
@@ -76,9 +93,13 @@
   <script>
     // 🧩 Initialize Supabase
     const SUPABASE_URL = 'https://nyipywsjnbyqtqpruplc.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im55aXB5d3NqbmJ5cXRxcHJ1cGxjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE2NTg0NzQsImV4cCI6MjA3NzIzNDQ3NH0.0TxPgEIeFsmh7AoM6pBACM_iBatfE9hLIIRWZtqS43w';
-    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im55aXB5d3NqbmJ5cXRxcHJ1cGxjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE2NTg0NzQsImV4cCI6MjA3NzIzNDQ3NH0.0TxPgEIeFsmh7AoM6pBACM_iBatfE9hLIIRWZtqS43w';
+    
+    // ⬇️ This was the line causing the error. 
+    // We rename the client variable to 'sbClient' to avoid conflict with the global 'supabase' object.
+    const sbClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+    // DOM Elements
     const userTable = document.getElementById("userTable");
     const totalUsersEl = document.getElementById("totalUsers");
     const activeUsersEl = document.getElementById("activeUsers");
@@ -89,13 +110,63 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
     const confirmCreate = document.getElementById("confirmCreate");
     const cancelCreate = document.getElementById("cancelCreate");
     const logoutBtn = document.getElementById("logoutBtn");
+    
+    // Modal Elements
+    const messageModal = document.getElementById("messageModal");
+    const messageText = document.getElementById("messageText");
+    const messageButtons = document.getElementById("messageButtons");
+
+    let confirmResolve = null; // Stores the promise's resolve function for confirmation
+
+    /**
+     * Shows a custom alert modal.
+     * @param {string} message The message to display.
+     */
+    function showAlert(message) {
+      messageText.textContent = message;
+      messageButtons.innerHTML = `<button id="alertOkBtn" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">OK</button>`;
+      messageModal.classList.remove("hidden");
+
+      document.getElementById("alertOkBtn").onclick = () => {
+        messageModal.classList.add("hidden");
+      };
+    }
+
+    /**
+     * Shows a custom confirmation modal.
+     * @param {string} message The confirmation question.
+     * @returns {Promise<boolean>} A promise that resolves to true if confirmed, false if canceled.
+     */
+    function showConfirm(message) {
+      return new Promise((resolve) => {
+        confirmResolve = resolve;
+        messageText.textContent = message;
+        messageButtons.innerHTML = `
+          <button id="confirmCancelBtn" class="px-4 py-2 bg-gray-300 rounded-lg hover:bg-gray-400 transition-colors">Cancel</button>
+          <button id="confirmOkBtn" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors">Confirm</button>
+        `;
+        messageModal.classList.remove("hidden");
+
+        document.getElementById("confirmCancelBtn").onclick = () => {
+          messageModal.classList.add("hidden");
+          if (confirmResolve) confirmResolve(false);
+          confirmResolve = null;
+        };
+        document.getElementById("confirmOkBtn").onclick = () => {
+          messageModal.classList.add("hidden");
+          if (confirmResolve) confirmResolve(true);
+          confirmResolve = null;
+        };
+      });
+    }
 
     // 🚀 Load dashboard data
     async function loadUsers(filter = "") {
-      const { data: users, error } = await supabase.auth.admin.listUsers();
+      // Use the corrected 'sbClient' variable
+      const { data: users, error } = await sbClient.auth.admin.listUsers();
       if (error) {
         console.error(error);
-        alert("Error fetching users");
+        showAlert(`Error fetching users: ${error.message}`);
         return;
       }
 
@@ -104,18 +175,24 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
         filtered = filtered.filter(u => u.email.toLowerCase().includes(filter.toLowerCase()));
       }
 
-      userTable.innerHTML = "";
+      userTable.innerHTML = ""; // Clear table
+      if (filtered.length === 0) {
+          userTable.innerHTML = `<tr><td colspan="3" class="p-4 text-center text-gray-500">No users found.</td></tr>`;
+      }
+
       filtered.forEach(user => {
         const tr = document.createElement("tr");
+        tr.className = "hover:bg-gray-50";
         tr.innerHTML = `
           <td class="py-3 px-4">${user.email}</td>
           <td class="py-3 px-4">${new Date(user.created_at).toLocaleString()}</td>
           <td class="py-3 px-4">
-            <button class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded" onclick="deleteUser('${user.id}')">Delete</button>
+            <button class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg transition-colors" onclick="deleteUser('${user.id}')">Delete</button>
           </td>`;
         userTable.appendChild(tr);
       });
 
+      // Update stats
       totalUsersEl.textContent = users.users.length;
       activeUsersEl.textContent = users.users.filter(u => u.last_sign_in_at).length;
       const lastWeek = new Date();
@@ -130,6 +207,8 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
     // ➕ Show modal
     createUserBtn.addEventListener("click", () => {
+      document.getElementById("newUserEmail").value = '';
+      document.getElementById("newUserPassword").value = '';
       createUserModal.classList.remove("hidden");
     });
 
@@ -142,31 +221,41 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
       const email = document.getElementById("newUserEmail").value;
       const password = document.getElementById("newUserPassword").value;
 
-      if (!email || !password) return alert("Enter email & password");
+      if (!email || !password) return showAlert("Please enter both email and password.");
 
-      const { data, error } = await supabase.auth.admin.createUser({ email, password });
-      if (error) return alert(error.message);
+      // Use the corrected 'sbClient' variable
+      const { data, error } = await sbClient.auth.admin.createUser({ email, password });
+      if (error) return showAlert(error.message);
 
-      alert("User created!");
+      showAlert("User created successfully!");
       createUserModal.classList.add("hidden");
-      loadUsers();
+      loadUsers(); // Refresh the user list
     });
 
-    // ❌ Delete user
-    async function deleteUser(id) {
-      if (!confirm("Are you sure you want to delete this user?")) return;
-      const { error } = await supabase.auth.admin.deleteUser(id);
-      if (error) alert(error.message);
-      else loadUsers();
+    // ❌ Delete user (function must be global for onclick)
+    window.deleteUser = async function(id) {
+      // Use the new confirmation modal
+      const isConfirmed = await showConfirm("Are you sure you want to delete this user? This action cannot be undone.");
+      if (!isConfirmed) return;
+
+      // Use the corrected 'sbClient' variable
+      const { error } = await sbClient.auth.admin.deleteUser(id);
+      if (error) {
+          showAlert(error.message);
+      } else {
+          showAlert("User deleted.");
+          loadUsers(); // Refresh the user list
+      }
     }
 
     // 🚪 Logout
     logoutBtn.addEventListener("click", async () => {
-      await supabase.auth.signOut();
-      window.location.href = "login.html";
+      // Use the corrected 'sbClient' variable
+      await sbClient.auth.signOut();
+      window.location.href = "login.html"; // Redirect to a login page
     });
 
-    // 🧠 On load
+    // 🧠 On page load
     loadUsers();
   </script>
 </body>
